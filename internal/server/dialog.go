@@ -57,14 +57,19 @@ type optionLine struct {
 	item   DialogItem
 }
 
+// applyCheckbox moves a leading "[x]" / "[ ]" of the label into Checked.
+func applyCheckbox(it *DialogItem) {
+	if cb := checkboxRe.FindStringSubmatch(it.Label); cb != nil {
+		checked := cb[1] != " "
+		it.Checked = &checked
+		it.Label = cb[2]
+	}
+}
+
 func parseOption(s string) (optionLine, bool) {
 	if m := numberedRe.FindStringSubmatch(s); m != nil {
 		it := DialogItem{Number: m[2], Label: m[3]}
-		if cb := checkboxRe.FindStringSubmatch(it.Label); cb != nil {
-			checked := cb[1] != " "
-			it.Checked = &checked
-			it.Label = cb[2]
-		}
+		applyCheckbox(&it)
 		it.FreeText = freeTextRe.MatchString(it.Label)
 		return optionLine{cursor: m[1] != "", item: it}, true
 	}

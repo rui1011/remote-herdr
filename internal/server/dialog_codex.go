@@ -133,11 +133,7 @@ func ParseCodexDialog(screen string) *Dialog {
 		}
 		desc = append(desc, o.extra...)
 		it.Description = strings.TrimSpace(strings.Join(desc, " "))
-		if cb := checkboxRe.FindStringSubmatch(it.Label); cb != nil {
-			checked := cb[1] != " "
-			it.Checked = &checked
-			it.Label = cb[2]
-		}
+		applyCheckbox(&it)
 		if o.cursor {
 			d.Cursor = k
 		}
