@@ -46,8 +46,6 @@ var (
 	hintEscRe   = regexp.MustCompile(`(?i)\besc\b`)
 )
 
-func isBlank(s string) bool { return strings.TrimSpace(s) == "" }
-
 // ParseCodexDialog extracts the selection view at the bottom of a Codex
 // screen. It returns nil unless a key hint ends the screen and exactly one
 // option of the list above it carries the cursor.
@@ -79,15 +77,19 @@ func ParseCodexDialog(screen string) *Dialog {
 	}
 
 	type opt struct {
-		item   DialogItem
-		cursor bool
-		extra  []string
+		item  DialogItem
+		extra []string
 	}
 	var opts []opt
+	cursor, cursors := -1, 0
 	var pre []string
 	for i := begin; i <= end; i++ {
 		if m := codexOptionRe.FindStringSubmatch(lines[i]); m != nil {
-			opts = append(opts, opt{item: DialogItem{Number: m[2], Label: m[3]}, cursor: m[1] != ""})
+			if m[1] != "" {
+				cursors++
+				cursor = len(opts)
+			}
+			opts = append(opts, opt{item: DialogItem{Number: m[2], Label: m[3]}})
 			continue
 		}
 		s := strings.TrimSpace(lines[i])
@@ -98,16 +100,7 @@ func ParseCodexDialog(screen string) *Dialog {
 			last.extra = append(last.extra, s)
 		}
 	}
-	if len(opts) == 0 {
-		return nil
-	}
-	cursors := 0
-	for _, o := range opts {
-		if o.cursor {
-			cursors++
-		}
-	}
-	if cursors != 1 {
+	if len(opts) == 0 || cursors != 1 {
 		return nil
 	}
 
@@ -120,8 +113,8 @@ func ParseCodexDialog(screen string) *Dialog {
 		}
 	}
 
-	d := &Dialog{Cursor: -1}
-	for k, o := range opts {
+	d := &Dialog{Cursor: cursor}
+	for _, o := range opts {
 		it := o.item
 		var desc []string
 		if split {
@@ -133,14 +126,7 @@ func ParseCodexDialog(screen string) *Dialog {
 		}
 		desc = append(desc, o.extra...)
 		it.Description = strings.TrimSpace(strings.Join(desc, " "))
-		if cb := checkboxRe.FindStringSubmatch(it.Label); cb != nil {
-			checked := cb[1] != " "
-			it.Checked = &checked
-			it.Label = cb[2]
-		}
-		if o.cursor {
-			d.Cursor = k
-		}
+		applyCheckbox(&it)
 		d.Items = append(d.Items, it)
 	}
 
@@ -168,7 +154,7 @@ func ParseCodexDialog(screen string) *Dialog {
 		break
 	}
 	for _, l := range above {
-		if isBlank(l) || separatorRe.MatchString(l) || dashRuleRe.MatchString(l) {
+		if isRuleOrBlank(l) {
 			continue
 		}
 		d.Context = append(d.Context, strings.TrimSpace(l))

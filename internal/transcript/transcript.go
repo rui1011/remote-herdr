@@ -55,10 +55,16 @@ var ErrNotFound = errors.New("transcript not found")
 
 // Locate finds <projectsDir>/*/<sessionID>.jsonl.
 func Locate(projectsDir, sessionID string) (string, error) {
+	return locateNewest(sessionID, projectsDir, "*", sessionID+".jsonl")
+}
+
+// locateNewest validates sessionID, then returns the newest file matching
+// the glob joined from elem (which embeds the id), or ErrNotFound.
+func locateNewest(sessionID string, elem ...string) (string, error) {
 	if !sessionIDPattern.MatchString(sessionID) {
 		return "", fmt.Errorf("invalid session id")
 	}
-	matches, err := filepath.Glob(filepath.Join(projectsDir, "*", sessionID+".jsonl"))
+	matches, err := filepath.Glob(filepath.Join(elem...))
 	if err != nil {
 		return "", err
 	}
@@ -200,10 +206,7 @@ func parseContent(raw json.RawMessage) []Block {
 	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		if strings.TrimSpace(s) == "" {
-			return nil
-		}
-		return []Block{textBlock("text", s, MaxTextChars)}
+		return appendText(nil, s)
 	}
 	var rbs []rawBlock
 	if json.Unmarshal(raw, &rbs) != nil {
@@ -213,14 +216,9 @@ func parseContent(raw json.RawMessage) []Block {
 	for _, rb := range rbs {
 		switch rb.Type {
 		case "text":
-			if strings.TrimSpace(rb.Text) != "" {
-				out = append(out, textBlock("text", rb.Text, MaxTextChars))
-			}
+			out = appendText(out, rb.Text)
 		case "tool_use":
-			in := compactJSON(rb.Input)
-			b := Block{Kind: "tool_use", Name: rb.Name}
-			b.Input, b.Truncated = truncate(in, MaxInputChars)
-			out = append(out, b)
+			out = append(out, toolUseBlock(rb.Name, compactJSON(rb.Input)))
 		case "tool_result":
 			out = append(out, toolResult(rb)...)
 		case "image":
@@ -235,9 +233,7 @@ func parseContent(raw json.RawMessage) []Block {
 func toolResult(rb rawBlock) []Block {
 	var s string
 	if json.Unmarshal(rb.Content, &s) == nil {
-		b := textBlock("tool_result", s, MaxToolChars)
-		b.IsError = rb.IsError
-		return []Block{b}
+		return []Block{resultBlock(s, rb.IsError)}
 	}
 	var inner []rawBlock
 	if json.Unmarshal(rb.Content, &inner) != nil {
@@ -255,9 +251,7 @@ func toolResult(rb rawBlock) []Block {
 			}
 		}
 	}
-	tb := textBlock("tool_result", strings.Join(texts, "\n"), MaxToolChars)
-	tb.IsError = rb.IsError
-	return append([]Block{tb}, out...)
+	return append([]Block{resultBlock(strings.Join(texts, "\n"), rb.IsError)}, out...)
 }
 
 func imageBlock(rb rawBlock) (Block, bool) {
@@ -273,6 +267,28 @@ func imageBlock(rb rawBlock) (Block, bool) {
 func textBlock(kind, s string, limit int) Block {
 	t, cut := truncate(s, limit)
 	return Block{Kind: kind, Text: t, Truncated: cut}
+}
+
+// appendText adds s to out as a text block unless it is blank.
+func appendText(out []Block, s string) []Block {
+	if strings.TrimSpace(s) == "" {
+		return out
+	}
+	return append(out, textBlock("text", s, MaxTextChars))
+}
+
+// toolUseBlock builds a tool_use block with the input truncated for the UI.
+func toolUseBlock(name, input string) Block {
+	b := Block{Kind: "tool_use", Name: name}
+	b.Input, b.Truncated = truncate(input, MaxInputChars)
+	return b
+}
+
+// resultBlock builds a tool_result block.
+func resultBlock(text string, isErr bool) Block {
+	b := textBlock("tool_result", text, MaxToolChars)
+	b.IsError = isErr
+	return b
 }
 
 func truncate(s string, limit int) (string, bool) {

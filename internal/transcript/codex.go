@@ -21,17 +21,7 @@ func LocateCodex(sessionsDir, sessionID string) (string, error) {
 		// process cwd.
 		return "", ErrNotFound
 	}
-	if !sessionIDPattern.MatchString(sessionID) {
-		return "", fmt.Errorf("invalid session id")
-	}
-	matches, err := filepath.Glob(filepath.Join(sessionsDir, "*", "*", "*", "rollout-*-"+sessionID+".jsonl"))
-	if err != nil {
-		return "", err
-	}
-	if len(matches) == 0 {
-		return "", ErrNotFound
-	}
-	return newest(matches), nil
+	return locateNewest(sessionID, sessionsDir, "*", "*", "*", "rollout-*-"+sessionID+".jsonl")
 }
 
 // LoadCodex parses the tail of a Codex rollout and returns at most limit messages.
@@ -143,23 +133,15 @@ func ParseCodex(data []byte) []Message {
 func codexBlocks(it codexItem) []Block {
 	var out []Block
 	switch it.Type {
-	case "UserMessage":
+	case "UserMessage", "AgentMessage":
 		for _, c := range it.Content {
-			if c.Type == "text" && strings.TrimSpace(c.Text) != "" {
-				out = append(out, textBlock("text", c.Text, MaxTextChars))
-			}
-		}
-	case "AgentMessage":
-		// Codex writes "Text" here, "text" elsewhere.
-		for _, c := range it.Content {
-			if strings.EqualFold(c.Type, "text") && strings.TrimSpace(c.Text) != "" {
-				out = append(out, textBlock("text", c.Text, MaxTextChars))
+			// Codex writes "Text" in agent messages, "text" elsewhere.
+			if c.Type == "text" || (it.Type == "AgentMessage" && strings.EqualFold(c.Type, "text")) {
+				out = appendText(out, c.Text)
 			}
 		}
 	case "Plan":
-		if strings.TrimSpace(it.Text) != "" {
-			out = append(out, textBlock("text", it.Text, MaxTextChars))
-		}
+		out = appendText(out, it.Text)
 	case "CommandExecution":
 		out = codexCommand(it)
 	case "FileChange":
@@ -167,23 +149,9 @@ func codexBlocks(it codexItem) []Block {
 	case "Extension":
 		switch it.Kind {
 		case "web.search":
-			in := map[string]string{}
-			if it.Query != "" {
-				in["query"] = it.Query
-			}
-			if it.Action.URL != "" {
-				in["url"] = it.Action.URL
-			}
-			out = append(out, toolUse("WebSearch", in))
+			out = append(out, toolUse("WebSearch", nonEmpty("query", it.Query, "url", it.Action.URL)))
 		case "image_gen.generation":
-			in := map[string]string{}
-			if it.RevisedPrompt != "" {
-				in["prompt"] = it.RevisedPrompt
-			}
-			if it.SavedPath != "" {
-				in["path"] = it.SavedPath
-			}
-			out = append(out, toolUse("ImageGen", in))
+			out = append(out, toolUse("ImageGen", nonEmpty("prompt", it.RevisedPrompt, "path", it.SavedPath)))
 		}
 	case "ImageView":
 		p := it.Path
@@ -216,10 +184,13 @@ func codexArgv(raw json.RawMessage) string {
 	return strings.Join(argv, " ")
 }
 
+// codexFailed reports whether an item status is neither empty nor completed.
+func codexFailed(status string) bool { return status != "" && status != "completed" }
+
 func codexCommand(it codexItem) []Block {
 	cmd := codexArgv(it.Command)
 	out := []Block{toolUse("Shell", map[string]string{"command": cmd})}
-	failed := (it.Status != "" && it.Status != "completed") || (it.ExitCode != nil && *it.ExitCode != 0)
+	failed := codexFailed(it.Status) || (it.ExitCode != nil && *it.ExitCode != 0)
 	text := it.AggregatedOutput
 	if text == "" && failed {
 		if it.ExitCode != nil {
@@ -229,9 +200,7 @@ func codexCommand(it codexItem) []Block {
 		}
 	}
 	if text != "" || failed {
-		b := textBlock("tool_result", text, MaxToolChars)
-		b.IsError = failed
-		out = append(out, b)
+		out = append(out, resultBlock(text, failed))
 	}
 	return out
 }
@@ -258,17 +227,15 @@ func codexFileChange(it codexItem) []Block {
 			text = c.Content
 		}
 		if text != "" {
-			out = append(out, textBlock("tool_result", text, MaxToolChars))
+			out = append(out, resultBlock(text, false))
 		}
 	}
-	if it.Status != "" && it.Status != "completed" {
+	if codexFailed(it.Status) {
 		text := strings.TrimSpace(string(it.Stderr))
 		if text == "" {
 			text = it.Status
 		}
-		b := textBlock("tool_result", text, MaxToolChars)
-		b.IsError = true
-		out = append(out, b)
+		out = append(out, resultBlock(text, true))
 	}
 	return out
 }
@@ -278,9 +245,7 @@ func codexMCP(it codexItem) []Block {
 	if it.Server != "" {
 		name = it.Server + "." + it.Tool
 	}
-	b := Block{Kind: "tool_use", Name: name}
-	b.Input, b.Truncated = truncate(compactJSON(it.Arguments), MaxInputChars)
-	out := []Block{b}
+	out := []Block{toolUseBlock(name, compactJSON(it.Arguments))}
 
 	var res struct {
 		Content []struct {
@@ -296,16 +261,25 @@ func codexMCP(it codexItem) []Block {
 		}
 	}
 	text := strings.Join(texts, "\n")
-	isErr := res.IsError || (it.Status != "" && it.Status != "completed")
+	isErr := res.IsError || codexFailed(it.Status)
 	if text == "" && isErr {
 		text = it.Status
 	}
 	if text != "" || isErr {
-		r := textBlock("tool_result", text, MaxToolChars)
-		r.IsError = isErr
-		out = append(out, r)
+		out = append(out, resultBlock(text, isErr))
 	}
 	return out
+}
+
+// nonEmpty builds a tool input from key/value pairs, leaving out empty values.
+func nonEmpty(kv ...string) map[string]string {
+	m := map[string]string{}
+	for i := 0; i+1 < len(kv); i += 2 {
+		if kv[i+1] != "" {
+			m[kv[i]] = kv[i+1]
+		}
+	}
+	return m
 }
 
 // toolUse builds a tool_use block whose input is the map as indented JSON.
@@ -316,7 +290,5 @@ func toolUse(name string, in map[string]string) Block {
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(in) // map[string]string cannot fail; keys come out sorted
-	b := Block{Kind: "tool_use", Name: name}
-	b.Input, b.Truncated = truncate(strings.TrimRight(buf.String(), "\n"), MaxInputChars)
-	return b
+	return toolUseBlock(name, strings.TrimRight(buf.String(), "\n"))
 }

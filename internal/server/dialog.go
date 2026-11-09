@@ -42,6 +42,14 @@ func isFooter(s string) bool {
 		strings.Contains(s, "Enter to confirm")
 }
 
+func isBlank(s string) bool { return strings.TrimSpace(s) == "" }
+
+// isRuleOrBlank reports a line that carries no dialog text: a blank line,
+// a separator or a dashed rule.
+func isRuleOrBlank(s string) bool {
+	return isBlank(s) || separatorRe.MatchString(s) || dashRuleRe.MatchString(s)
+}
+
 // isPromptEcho reports a line of the user's own input history ("❯ text" at
 // column 0) which sits above the dialog and must not be read as an option.
 func isPromptEcho(s string) bool {
@@ -57,14 +65,19 @@ type optionLine struct {
 	item   DialogItem
 }
 
+// applyCheckbox moves a leading "[x]" / "[ ]" of the label into Checked.
+func applyCheckbox(it *DialogItem) {
+	if cb := checkboxRe.FindStringSubmatch(it.Label); cb != nil {
+		checked := cb[1] != " "
+		it.Checked = &checked
+		it.Label = cb[2]
+	}
+}
+
 func parseOption(s string) (optionLine, bool) {
 	if m := numberedRe.FindStringSubmatch(s); m != nil {
 		it := DialogItem{Number: m[2], Label: m[3]}
-		if cb := checkboxRe.FindStringSubmatch(it.Label); cb != nil {
-			checked := cb[1] != " "
-			it.Checked = &checked
-			it.Label = cb[2]
-		}
+		applyCheckbox(&it)
 		it.FreeText = freeTextRe.MatchString(it.Label)
 		return optionLine{cursor: m[1] != "", item: it}, true
 	}
@@ -117,7 +130,7 @@ func ParseDialog(screen string) *Dialog {
 			continue
 		}
 		j := i - 1
-		for j >= floor && strings.TrimSpace(lines[j]) == "" {
+		for j >= floor && isBlank(lines[j]) {
 			j--
 		}
 		if j >= floor {
@@ -142,7 +155,7 @@ func ParseDialog(screen string) *Dialog {
 	d := &Dialog{Cursor: -1}
 	for i := start; i < opts[0].line; i++ {
 		s := strings.TrimRight(lines[i], " ")
-		if strings.TrimSpace(s) == "" || separatorRe.MatchString(s) || dashRuleRe.MatchString(s) || isFooter(s) {
+		if isRuleOrBlank(s) || isFooter(s) {
 			continue
 		}
 		d.Context = append(d.Context, strings.TrimSpace(s))
