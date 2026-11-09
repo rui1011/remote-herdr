@@ -608,11 +608,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				// Cache only found paths: a new session's log can appear
 				// after herdr reports its id, so misses are retried on the
 				// next tick.
-				var terr error
-				if p, _, terr = s.transcriptOf(a); terr == nil {
+				if found, _, err := s.transcriptOf(a); err == nil {
+					p = found
 					paths[key] = p
-				} else {
-					p = ""
 				}
 			}
 			if p != "" {
