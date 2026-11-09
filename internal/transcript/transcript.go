@@ -55,10 +55,16 @@ var ErrNotFound = errors.New("transcript not found")
 
 // Locate finds <projectsDir>/*/<sessionID>.jsonl.
 func Locate(projectsDir, sessionID string) (string, error) {
+	return locateNewest(sessionID, projectsDir, "*", sessionID+".jsonl")
+}
+
+// locateNewest validates sessionID, then returns the newest file matching
+// the glob joined from elem (which embeds the id), or ErrNotFound.
+func locateNewest(sessionID string, elem ...string) (string, error) {
 	if !sessionIDPattern.MatchString(sessionID) {
 		return "", fmt.Errorf("invalid session id")
 	}
-	matches, err := filepath.Glob(filepath.Join(projectsDir, "*", sessionID+".jsonl"))
+	matches, err := filepath.Glob(filepath.Join(elem...))
 	if err != nil {
 		return "", err
 	}

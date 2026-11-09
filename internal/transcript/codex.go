@@ -21,17 +21,7 @@ func LocateCodex(sessionsDir, sessionID string) (string, error) {
 		// process cwd.
 		return "", ErrNotFound
 	}
-	if !sessionIDPattern.MatchString(sessionID) {
-		return "", fmt.Errorf("invalid session id")
-	}
-	matches, err := filepath.Glob(filepath.Join(sessionsDir, "*", "*", "*", "rollout-*-"+sessionID+".jsonl"))
-	if err != nil {
-		return "", err
-	}
-	if len(matches) == 0 {
-		return "", ErrNotFound
-	}
-	return newest(matches), nil
+	return locateNewest(sessionID, sessionsDir, "*", "*", "*", "rollout-*-"+sessionID+".jsonl")
 }
 
 // LoadCodex parses the tail of a Codex rollout and returns at most limit messages.
