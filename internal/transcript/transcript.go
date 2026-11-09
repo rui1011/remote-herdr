@@ -200,10 +200,7 @@ func parseContent(raw json.RawMessage) []Block {
 	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		if strings.TrimSpace(s) == "" {
-			return nil
-		}
-		return []Block{textBlock("text", s, MaxTextChars)}
+		return appendText(nil, s)
 	}
 	var rbs []rawBlock
 	if json.Unmarshal(raw, &rbs) != nil {
@@ -213,9 +210,7 @@ func parseContent(raw json.RawMessage) []Block {
 	for _, rb := range rbs {
 		switch rb.Type {
 		case "text":
-			if strings.TrimSpace(rb.Text) != "" {
-				out = append(out, textBlock("text", rb.Text, MaxTextChars))
-			}
+			out = appendText(out, rb.Text)
 		case "tool_use":
 			out = append(out, toolUseBlock(rb.Name, compactJSON(rb.Input)))
 		case "tool_result":
@@ -266,6 +261,14 @@ func imageBlock(rb rawBlock) (Block, bool) {
 func textBlock(kind, s string, limit int) Block {
 	t, cut := truncate(s, limit)
 	return Block{Kind: kind, Text: t, Truncated: cut}
+}
+
+// appendText adds s to out as a text block unless it is blank.
+func appendText(out []Block, s string) []Block {
+	if strings.TrimSpace(s) == "" {
+		return out
+	}
+	return append(out, textBlock("text", s, MaxTextChars))
 }
 
 // toolUseBlock builds a tool_use block with the input truncated for the UI.

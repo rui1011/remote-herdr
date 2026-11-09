@@ -143,23 +143,15 @@ func ParseCodex(data []byte) []Message {
 func codexBlocks(it codexItem) []Block {
 	var out []Block
 	switch it.Type {
-	case "UserMessage":
+	case "UserMessage", "AgentMessage":
 		for _, c := range it.Content {
-			if c.Type == "text" && strings.TrimSpace(c.Text) != "" {
-				out = append(out, textBlock("text", c.Text, MaxTextChars))
-			}
-		}
-	case "AgentMessage":
-		// Codex writes "Text" here, "text" elsewhere.
-		for _, c := range it.Content {
-			if strings.EqualFold(c.Type, "text") && strings.TrimSpace(c.Text) != "" {
-				out = append(out, textBlock("text", c.Text, MaxTextChars))
+			// Codex writes "Text" in agent messages, "text" elsewhere.
+			if c.Type == "text" || (it.Type == "AgentMessage" && strings.EqualFold(c.Type, "text")) {
+				out = appendText(out, c.Text)
 			}
 		}
 	case "Plan":
-		if strings.TrimSpace(it.Text) != "" {
-			out = append(out, textBlock("text", it.Text, MaxTextChars))
-		}
+		out = appendText(out, it.Text)
 	case "CommandExecution":
 		out = codexCommand(it)
 	case "FileChange":
