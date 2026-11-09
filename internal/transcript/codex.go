@@ -149,23 +149,9 @@ func codexBlocks(it codexItem) []Block {
 	case "Extension":
 		switch it.Kind {
 		case "web.search":
-			in := map[string]string{}
-			if it.Query != "" {
-				in["query"] = it.Query
-			}
-			if it.Action.URL != "" {
-				in["url"] = it.Action.URL
-			}
-			out = append(out, toolUse("WebSearch", in))
+			out = append(out, toolUse("WebSearch", nonEmpty("query", it.Query, "url", it.Action.URL)))
 		case "image_gen.generation":
-			in := map[string]string{}
-			if it.RevisedPrompt != "" {
-				in["prompt"] = it.RevisedPrompt
-			}
-			if it.SavedPath != "" {
-				in["path"] = it.SavedPath
-			}
-			out = append(out, toolUse("ImageGen", in))
+			out = append(out, toolUse("ImageGen", nonEmpty("prompt", it.RevisedPrompt, "path", it.SavedPath)))
 		}
 	case "ImageView":
 		p := it.Path
@@ -283,6 +269,17 @@ func codexMCP(it codexItem) []Block {
 		out = append(out, resultBlock(text, isErr))
 	}
 	return out
+}
+
+// nonEmpty builds a tool input from key/value pairs, leaving out empty values.
+func nonEmpty(kv ...string) map[string]string {
+	m := map[string]string{}
+	for i := 0; i+1 < len(kv); i += 2 {
+		if kv[i+1] != "" {
+			m[kv[i]] = kv[i+1]
+		}
+	}
+	return m
 }
 
 // toolUse builds a tool_use block whose input is the map as indented JSON.
