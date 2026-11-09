@@ -217,10 +217,7 @@ func parseContent(raw json.RawMessage) []Block {
 				out = append(out, textBlock("text", rb.Text, MaxTextChars))
 			}
 		case "tool_use":
-			in := compactJSON(rb.Input)
-			b := Block{Kind: "tool_use", Name: rb.Name}
-			b.Input, b.Truncated = truncate(in, MaxInputChars)
-			out = append(out, b)
+			out = append(out, toolUseBlock(rb.Name, compactJSON(rb.Input)))
 		case "tool_result":
 			out = append(out, toolResult(rb)...)
 		case "image":
@@ -235,9 +232,7 @@ func parseContent(raw json.RawMessage) []Block {
 func toolResult(rb rawBlock) []Block {
 	var s string
 	if json.Unmarshal(rb.Content, &s) == nil {
-		b := textBlock("tool_result", s, MaxToolChars)
-		b.IsError = rb.IsError
-		return []Block{b}
+		return []Block{resultBlock(s, rb.IsError)}
 	}
 	var inner []rawBlock
 	if json.Unmarshal(rb.Content, &inner) != nil {
@@ -255,9 +250,7 @@ func toolResult(rb rawBlock) []Block {
 			}
 		}
 	}
-	tb := textBlock("tool_result", strings.Join(texts, "\n"), MaxToolChars)
-	tb.IsError = rb.IsError
-	return append([]Block{tb}, out...)
+	return append([]Block{resultBlock(strings.Join(texts, "\n"), rb.IsError)}, out...)
 }
 
 func imageBlock(rb rawBlock) (Block, bool) {
@@ -273,6 +266,20 @@ func imageBlock(rb rawBlock) (Block, bool) {
 func textBlock(kind, s string, limit int) Block {
 	t, cut := truncate(s, limit)
 	return Block{Kind: kind, Text: t, Truncated: cut}
+}
+
+// toolUseBlock builds a tool_use block with the input truncated for the UI.
+func toolUseBlock(name, input string) Block {
+	b := Block{Kind: "tool_use", Name: name}
+	b.Input, b.Truncated = truncate(input, MaxInputChars)
+	return b
+}
+
+// resultBlock builds a tool_result block.
+func resultBlock(text string, isErr bool) Block {
+	b := textBlock("tool_result", text, MaxToolChars)
+	b.IsError = isErr
+	return b
 }
 
 func truncate(s string, limit int) (string, bool) {

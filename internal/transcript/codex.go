@@ -216,10 +216,13 @@ func codexArgv(raw json.RawMessage) string {
 	return strings.Join(argv, " ")
 }
 
+// codexFailed reports whether an item status is neither empty nor completed.
+func codexFailed(status string) bool { return status != "" && status != "completed" }
+
 func codexCommand(it codexItem) []Block {
 	cmd := codexArgv(it.Command)
 	out := []Block{toolUse("Shell", map[string]string{"command": cmd})}
-	failed := (it.Status != "" && it.Status != "completed") || (it.ExitCode != nil && *it.ExitCode != 0)
+	failed := codexFailed(it.Status) || (it.ExitCode != nil && *it.ExitCode != 0)
 	text := it.AggregatedOutput
 	if text == "" && failed {
 		if it.ExitCode != nil {
@@ -229,9 +232,7 @@ func codexCommand(it codexItem) []Block {
 		}
 	}
 	if text != "" || failed {
-		b := textBlock("tool_result", text, MaxToolChars)
-		b.IsError = failed
-		out = append(out, b)
+		out = append(out, resultBlock(text, failed))
 	}
 	return out
 }
@@ -258,17 +259,15 @@ func codexFileChange(it codexItem) []Block {
 			text = c.Content
 		}
 		if text != "" {
-			out = append(out, textBlock("tool_result", text, MaxToolChars))
+			out = append(out, resultBlock(text, false))
 		}
 	}
-	if it.Status != "" && it.Status != "completed" {
+	if codexFailed(it.Status) {
 		text := strings.TrimSpace(string(it.Stderr))
 		if text == "" {
 			text = it.Status
 		}
-		b := textBlock("tool_result", text, MaxToolChars)
-		b.IsError = true
-		out = append(out, b)
+		out = append(out, resultBlock(text, true))
 	}
 	return out
 }
@@ -278,9 +277,7 @@ func codexMCP(it codexItem) []Block {
 	if it.Server != "" {
 		name = it.Server + "." + it.Tool
 	}
-	b := Block{Kind: "tool_use", Name: name}
-	b.Input, b.Truncated = truncate(compactJSON(it.Arguments), MaxInputChars)
-	out := []Block{b}
+	out := []Block{toolUseBlock(name, compactJSON(it.Arguments))}
 
 	var res struct {
 		Content []struct {
@@ -296,14 +293,12 @@ func codexMCP(it codexItem) []Block {
 		}
 	}
 	text := strings.Join(texts, "\n")
-	isErr := res.IsError || (it.Status != "" && it.Status != "completed")
+	isErr := res.IsError || codexFailed(it.Status)
 	if text == "" && isErr {
 		text = it.Status
 	}
 	if text != "" || isErr {
-		r := textBlock("tool_result", text, MaxToolChars)
-		r.IsError = isErr
-		out = append(out, r)
+		out = append(out, resultBlock(text, isErr))
 	}
 	return out
 }
@@ -316,7 +311,5 @@ func toolUse(name string, in map[string]string) Block {
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(in) // map[string]string cannot fail; keys come out sorted
-	b := Block{Kind: "tool_use", Name: name}
-	b.Input, b.Truncated = truncate(strings.TrimRight(buf.String(), "\n"), MaxInputChars)
-	return b
+	return toolUseBlock(name, strings.TrimRight(buf.String(), "\n"))
 }
