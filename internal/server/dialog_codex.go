@@ -79,15 +79,19 @@ func ParseCodexDialog(screen string) *Dialog {
 	}
 
 	type opt struct {
-		item   DialogItem
-		cursor bool
-		extra  []string
+		item  DialogItem
+		extra []string
 	}
 	var opts []opt
+	cursor, cursors := -1, 0
 	var pre []string
 	for i := begin; i <= end; i++ {
 		if m := codexOptionRe.FindStringSubmatch(lines[i]); m != nil {
-			opts = append(opts, opt{item: DialogItem{Number: m[2], Label: m[3]}, cursor: m[1] != ""})
+			if m[1] != "" {
+				cursors++
+				cursor = len(opts)
+			}
+			opts = append(opts, opt{item: DialogItem{Number: m[2], Label: m[3]}})
 			continue
 		}
 		s := strings.TrimSpace(lines[i])
@@ -98,16 +102,7 @@ func ParseCodexDialog(screen string) *Dialog {
 			last.extra = append(last.extra, s)
 		}
 	}
-	if len(opts) == 0 {
-		return nil
-	}
-	cursors := 0
-	for _, o := range opts {
-		if o.cursor {
-			cursors++
-		}
-	}
-	if cursors != 1 {
+	if len(opts) == 0 || cursors != 1 {
 		return nil
 	}
 
@@ -120,8 +115,8 @@ func ParseCodexDialog(screen string) *Dialog {
 		}
 	}
 
-	d := &Dialog{Cursor: -1}
-	for k, o := range opts {
+	d := &Dialog{Cursor: cursor}
+	for _, o := range opts {
 		it := o.item
 		var desc []string
 		if split {
@@ -134,9 +129,6 @@ func ParseCodexDialog(screen string) *Dialog {
 		desc = append(desc, o.extra...)
 		it.Description = strings.TrimSpace(strings.Join(desc, " "))
 		applyCheckbox(&it)
-		if o.cursor {
-			d.Cursor = k
-		}
 		d.Items = append(d.Items, it)
 	}
 
