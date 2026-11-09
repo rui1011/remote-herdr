@@ -46,8 +46,6 @@ var (
 	hintEscRe   = regexp.MustCompile(`(?i)\besc\b`)
 )
 
-func isBlank(s string) bool { return strings.TrimSpace(s) == "" }
-
 // ParseCodexDialog extracts the selection view at the bottom of a Codex
 // screen. It returns nil unless a key hint ends the screen and exactly one
 // option of the list above it carries the cursor.
@@ -156,7 +154,7 @@ func ParseCodexDialog(screen string) *Dialog {
 		break
 	}
 	for _, l := range above {
-		if isBlank(l) || separatorRe.MatchString(l) || dashRuleRe.MatchString(l) {
+		if isRuleOrBlank(l) {
 			continue
 		}
 		d.Context = append(d.Context, strings.TrimSpace(l))
